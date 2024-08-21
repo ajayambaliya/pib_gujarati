@@ -97,13 +97,16 @@ async def generate_and_send_document(title, content, content_gujarati):
 
     try:
         doc = Document(template_bytes)
+        doc.paragraphs[0].text = ""
         doc.add_heading(GoogleTranslator(source="en", target="gu").translate(title), 0)
-        doc.add_heading(title, 0)
+        doc.paragraphs[1].text = title
 
         for eng_paragraph, guj_paragraph in zip(content, content_gujarati):
-            doc.add_paragraph(guj_paragraph)
-            doc.add_paragraph(eng_paragraph)
-            doc.add_paragraph("")
+            para = doc.add_paragraph()
+            para.add_run("• ").bold = True
+            para.add_run(guj_paragraph)
+            doc.add_paragraph("• " + eng_paragraph)
+            doc.add_paragraph()
 
         promotional_message = "Don't miss out on the latest updates! Stay informed with our channel."
         doc.add_paragraph(promotional_message)
@@ -113,7 +116,7 @@ async def generate_and_send_document(title, content, content_gujarati):
         doc.save(output_docx)
 
         pdf_file = await convert_docx_to_pdf(output_docx)
-        await send_to_telegram(pdf_file, f"📄 {GoogleTranslator(source='en', target='gu').translate(title)}\n\n{promotional_message}")
+        await send_to_telegram(pdf_file, f"🔖 {GoogleTranslator(source='en', target='gu').translate(title)}\n\n{promotional_message}\n\n📥 Join our channel to get the latest updates: {TELEGRAM_CHANNEL_URL}")
 
     except Exception as e:
         logging.error(f"Error processing document: {e}")
@@ -125,10 +128,10 @@ async def send_small_post_to_telegram(title, content, content_gujarati):
         bot = Bot(token=TELEGRAM_BOT_TOKEN)
         message = f"🗞️ {GoogleTranslator(source='en', target='gu').translate(title)}\n\n"
         for eng_paragraph, guj_paragraph in zip(content, content_gujarati):
-            message += f"{guj_paragraph}\n{eng_paragraph}\n\n"
+            message += f"• {guj_paragraph}\n• {eng_paragraph}\n\n"
 
         promotional_message = "Don't miss out on the latest updates! Stay informed with our channel."
-        message += f"{promotional_message}\nJoin our Telegram Channel for more updates: {TELEGRAM_CHANNEL_URL}"
+        message += f"{promotional_message}\n📥 Join our Telegram Channel for more updates: {TELEGRAM_CHANNEL_URL}"
         await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
 
     except TelegramError as e:
