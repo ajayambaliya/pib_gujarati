@@ -2,7 +2,7 @@ import os
 import requests
 from bs4 import BeautifulSoup
 from deep_translator import GoogleTranslator
-from pymongo import MongoClient
+from pymongo import MongoClient, errors
 from docx import Document
 from docx.shared import Pt
 from telegram import Bot
@@ -29,7 +29,13 @@ TELEGRAM_CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID')
 client = MongoClient(MONGO_CONNECTION_STRING)
 db = client[DB_NAME]
 collection = db[COLLECTION_NAME]
-collection.create_index("link", unique=True)
+
+# Create a partial index to exclude documents with `null` links
+collection.create_index(
+    [("link", 1)],
+    unique=True,
+    partialFilterExpression={"link": {"$exists": True, "$ne": None}}
+)
 
 # Download the DOCX template from the provided URL
 def download_template(url):
@@ -67,6 +73,11 @@ def scrape_content():
         for a_tag in content_area.find_all('a', href=True):
             href = a_tag['href']
             full_link = f"{base_url}{href}"
+
+            # Skip null or empty links
+            if not full_link:
+                continue
+
             # Check if link is already in MongoDB
             if not collection.find_one({"link": full_link}):
                 links.append(full_link)
@@ -99,8 +110,12 @@ def scrape_content():
                 break
 
         # Add scraped link to MongoDB
-        collection.insert_one({"link": link})
-        
+        try:
+            collection.insert_one({"link": link})
+        except errors.DuplicateKeyError:
+            logging.warning(f"Duplicate link found: {link}. Skipping insertion.")
+            continue
+
         # Generate document and send to Telegram
         generate_and_send_document(title, content, content_gujarati)
 
