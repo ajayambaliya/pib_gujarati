@@ -27,10 +27,8 @@ def download_template(url):
     try:
         response = requests.get(url)
         response.raise_for_status()
-        template_path = "template.docx"
-        with open(template_path, "wb") as file:
-            file.write(response.content)
-        return template_path
+        template_bytes = BytesIO(response.content)
+        return template_bytes
     except requests.exceptions.RequestException as e:
         print(f"Error downloading template: {e}")
         return None
@@ -84,14 +82,14 @@ def scrape_content():
 
 # Add content to the DOCX template and save it
 def generate_and_send_document(title, content, content_gujarati):
-    template_path = download_template(TEMPLATE_URL)
+    template_bytes = download_template(TEMPLATE_URL)
     
-    if not template_path:
+    if not template_bytes:
         print("Template not available. Exiting.")
         return
     
     try:
-        doc = Document(template_path)
+        doc = Document(template_bytes)
         doc.add_heading(GoogleTranslator(source='en', target='gu').translate(title), level=1)
         doc.add_heading(title, level=1)
 
@@ -144,8 +142,6 @@ if __name__ == "__main__":
     scrape_content()
     
     # Clean up temporary files
-    if os.path.exists("template.docx"):
-        os.remove("template.docx")
     if os.path.exists("output.docx"):
         os.remove("output.docx")
     if os.path.exists("output.pdf"):
