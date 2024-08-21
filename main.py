@@ -201,15 +201,21 @@ def get_truncated_title(title, max_length=50):
     else:
         return title
 
-def shorten_url(url, max_length=30):
+def shorten_url(url, max_length=50):
     parsed_url = urlparse(url)
-    full_path = parsed_url.path + (f"?{parsed_url.query}" if parsed_url.query else "")
+    # Combine the path and query to preserve the full URL structure
+    full_path = f"{parsed_url.path}?{parsed_url.query}" if parsed_url.query else parsed_url.path
     shortened_url = f"{parsed_url.netloc}{full_path}"
     
+    # Ensure we don't cut off the URL in a way that loses critical information
     if len(shortened_url) > max_length:
-        return shortened_url[:max_length] + "..."
+        # Keep the start and end intact, trimming only the middle part
+        start = shortened_url[:max_length//2]
+        end = shortened_url[-(max_length//2 - 3):]
+        return f"{start}...{end}"
     else:
         return shortened_url
+
 
 
 async def main():
