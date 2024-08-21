@@ -15,7 +15,7 @@ import subprocess
 DB_NAME = os.getenv('DB_NAME')
 COLLECTION_NAME = os.getenv('COLLECTION_NAME')
 MONGO_CONNECTION_STRING = os.getenv('MONGO_CONNECTION_STRING')
-TEMPLATE_URL = os.getenv('TEMPLATE_URL')
+TEMPLATE_URL = 'https://docs.google.com/document/d/1GoHxD3FSM8-RhIJu_WGr4NVjVthCzpfx/edit?usp=sharing&ouid=108520131839767724661&rtpof=true&sd=true'
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID')
 
