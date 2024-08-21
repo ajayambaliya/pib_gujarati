@@ -3,7 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 from deep_translator import GoogleTranslator
 from pymongo import MongoClient
-from docx import Document
+from docx import Document, Style, Paragraph
 from io import BytesIO
 from telegram import Bot
 import subprocess
@@ -104,12 +104,21 @@ def generate_and_send_document(title, content, content_gujarati):
     try:
         print("Creating DOCX document")
         doc = Document(template_bytes)
+        
+        # Add heading styles if they don't exist
+        if "Heading 1" not in doc.styles:
+            style = doc.styles.add_style("Heading 1", Style.TYPE_PARAGRAPH)
+            style.font.bold = True
+            style.font.size = Paragraph.DEFAULT_FONT_SIZE * 1.5
+        
         doc.add_heading(GoogleTranslator(source='en', target='gu').translate(title), level=1)
         doc.add_heading(title, level=1)
 
         for eng_paragraph, guj_paragraph in zip(content, content_gujarati):
-            doc.add_paragraph(guj_paragraph, style='List Bullet')
-            doc.add_paragraph(eng_paragraph, style='List Bullet')
+            paragraph = doc.add_paragraph(guj_paragraph)
+            paragraph.style = "List Bullet"
+            paragraph = doc.add_paragraph(eng_paragraph)
+            paragraph.style = "List Bullet"
             doc.add_paragraph('')  # Add spacing
 
         # Add promotional message and Telegram channel link
