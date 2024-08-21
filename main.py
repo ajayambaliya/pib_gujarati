@@ -6,11 +6,8 @@ from pymongo import MongoClient
 from docx import Document
 from io import BytesIO
 from telegram import Bot
-from telegram.ext import ContextTypes
-from telegram.utils.helpers import create_deep_linked_url
 from telegram.error import TelegramError
 import subprocess
-import shutil
 import logging
 import asyncio
 
@@ -28,6 +25,7 @@ MONGO_CONNECTION_STRING = os.getenv("MONGO_CONNECTION_STRING")
 TEMPLATE_URL = "https://docs.google.com/document/d/1GoHxD3FSM8-RhIJu_WGr4NVjVthCzpfx/export?format=docx"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
+TELEGRAM_CHANNEL_URL = f"https://t.me/pib_gujarati"
 
 # Initialize MongoDB client
 client = MongoClient(MONGO_CONNECTION_STRING)
@@ -118,7 +116,7 @@ async def generate_and_send_document(title, content, content_gujarati):
 
         promotional_message = "Don't miss out on the latest updates! Stay informed with our channel."
         doc.add_paragraph(promotional_message)
-        doc.add_paragraph("Join our Telegram Channel for more updates: https://t.me/pib_gujarati")
+        doc.add_paragraph(f"Join our Telegram Channel for more updates: {TELEGRAM_CHANNEL_URL}")
 
         output_docx = "output.docx"
         logging.info(f"Saving DOCX document to: {output_docx}")
@@ -138,8 +136,8 @@ async def send_small_post_to_telegram(title, content, content_gujarati):
         message = f"🗞️ {GoogleTranslator(source='en', target='gu').translate(title)}\n\n"
         for eng_paragraph, guj_paragraph in zip(content, content_gujarati):
             message += f"{guj_paragraph}\n{eng_paragraph}\n\n"
-        message += "Don't miss out on the latest updates! Stay informed with our channel.\nJoin our Telegram Channel for more updates: https://t.me/pib_gujarati"
-        await ContextTypes().bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
+        message += f"{promotional_message}\nJoin our Telegram Channel for more updates: {TELEGRAM_CHANNEL_URL}"
+        await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
     except TelegramError as e:
         logging.error(f"Error sending small post to Telegram: {e}")
     except Exception as e:
