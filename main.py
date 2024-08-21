@@ -10,6 +10,7 @@ from telegram import Bot
 from telegram.error import TelegramError
 import subprocess
 import asyncio
+from PIL import Image
 
 # Configure logging
 logging.basicConfig(
@@ -72,25 +73,35 @@ async def scrape_content():
             title = soup.find("h2").get_text(strip=True)
             content, content_gujarati = [], []
 
-            for paragraph in soup.find_all("p"):
-                if paragraph.get("style") == "text-align:justify":
+            for paragraph in soup.find_all("p", style="text-align:justify"):
+                text = paragraph.get_text(strip=True)
+                content.append(text)
+                content_gujarati.append(GoogleTranslator(source="en", target="gu").translate(text))
+
+            if not content:
+                for paragraph in soup.find_all("p", style="margin-left:0cm; margin-right:0cm; text-align:justify"):
                     text = paragraph.get_text(strip=True)
                     content.append(text)
                     content_gujarati.append(GoogleTranslator(source="en", target="gu").translate(text))
-                elif paragraph.get("style") == "text-align:center" and paragraph.get_text(strip=True) == "***":
-                    break
+
+            img_tags = soup.find_all("img")
+            images = []
+            for img_tag in img_tags:
+                img_src = img_tag.get("src")
+                if img_src:
+                    images.append({"src": img_src, "alt": img_tag.get("alt", "")})
 
             collection.insert_one({"link": link})
 
             if content:
-                await generate_and_send_document(title, content, content_gujarati)
+                await generate_and_send_document(title, content, content_gujarati, images)
             else:
                 await send_small_post_to_telegram(title, content, content_gujarati)
 
     except aiohttp.ClientError as e:
         logging.error(f"Error scraping content: {e}")
 
-async def generate_and_send_document(title, content, content_gujarati):
+async def generate_and_send_document(title, content, content_gujarati, images):
     template_bytes = await download_template(TEMPLATE_URL)
     if not template_bytes:
         return
@@ -108,6 +119,21 @@ async def generate_and_send_document(title, content, content_gujarati):
             doc.add_paragraph("• " + eng_paragraph)
             doc.add_paragraph()
 
+        for image in images:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(image["src"]) as response:
+                        image_bytes = await response.read()
+                        image_obj = Image.open(BytesIO(image_bytes))
+                        image_obj.thumbnail((image_obj.width * 0.3, image_obj.height * 0.3), Image.ANTIALIAS)
+                        image_file = BytesIO()
+                        image_obj.save(image_file, format="PNG")
+                        image_file.seek(0)
+                        doc.add_picture(image_file, width=docx.shared.Inches(5))
+                        doc.add_paragraph(image["alt"])
+            except Exception as e:
+                logging.error(f"Error processing image: {e}")
+
         promotional_message = "Don't miss out on the latest updates! Stay informed with our channel."
         doc.add_paragraph(promotional_message)
         doc.add_paragraph(f"Join our Telegram Channel for more updates: {TELEGRAM_CHANNEL_URL}")
@@ -116,7 +142,8 @@ async def generate_and_send_document(title, content, content_gujarati):
         doc.save(output_docx)
 
         pdf_file = await convert_docx_to_pdf(output_docx)
-        await send_to_telegram(pdf_file, f"🔖 {GoogleTranslator(source='en', target='gu').translate(title)}\n\n{promotional_message}\n\n📥 Join our channel to get the latest updates: {TELEGRAM_CHANNEL_URL}")
+        pdf_name = f"{get_truncated_title(title)}.pdf"
+        await send_to_telegram(pdf_file, pdf_name, f"🔖 {GoogleTranslator(source='en', target='gu').translate(title)}\n\n{promotional_message}\n\n📥 Join our channel to get the latest updates: {TELEGRAM_CHANNEL_URL}")
 
     except Exception as e:
         logging.error(f"Error processing document: {e}")
@@ -148,12 +175,12 @@ async def convert_docx_to_pdf(input_docx):
         logging.error(f"Error converting DOCX to PDF: {e}")
         return None
 
-async def send_to_telegram(pdf_path, caption):
+async def send_to_telegram(pdf_path, pdf_name, caption):
     if pdf_path:
         try:
             bot = Bot(token=TELEGRAM_BOT_TOKEN)
             with open(pdf_path, "rb") as pdf_file:
-                await bot.send_document(chat_id=TELEGRAM_CHANNEL_ID, document=pdf_file, caption=caption)
+                await bot.send_document(chat_id=TELEGRAM_CHANNEL_ID, document=pdf_file, caption=caption, filename=pdf_name)
         except TelegramError as e:
             logging.error(f"Error sending PDF to Telegram: {e}")
         except Exception as e:
@@ -164,6 +191,12 @@ def cleanup_files(file_list):
         if os.path.exists(file_path):
             os.remove(file_path)
             logging.info(f"Removed file: {file_path}")
+
+def get_truncated_title(title, max_length=50):
+    if len(title) > max_length:
+        return title[:max_length] + "..."
+    else:
+        return title
 
 async def main():
     await scrape_content()
