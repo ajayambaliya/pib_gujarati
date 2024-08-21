@@ -7,12 +7,13 @@ from docx import Document
 from io import BytesIO
 from telegram import Bot
 import subprocess
+import shutil
 
 # Load environment variables
 DB_NAME = os.getenv('DB_NAME')
 COLLECTION_NAME = os.getenv('COLLECTION_NAME')
 MONGO_CONNECTION_STRING = os.getenv('MONGO_CONNECTION_STRING')
-TEMPLATE_URL = os.getenv('TEMPLATE_URL')
+TEMPLATE_URL = "https://docs.google.com/document/d/1GoHxD3FSM8-RhIJu_WGr4NVjVthCzpfx/edit?usp=sharing&ouid=108520131839767724661&rtpof=true&sd=true"
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID')
 
@@ -76,7 +77,10 @@ def scrape_content():
         collection.insert_one({"link": link})
         
         # Generate document and send to Telegram
-        generate_and_send_document(title, content, content_gujarati)
+        if len(content) > 0:
+            generate_and_send_document(title, content, content_gujarati)
+        else:
+            send_small_post_to_telegram(title, content, content_gujarati)
 
 # Add content to the DOCX template and save it
 def generate_and_send_document(title, content, content_gujarati):
@@ -111,6 +115,18 @@ def generate_and_send_document(title, content, content_gujarati):
     except Exception as e:
         print(f"Error processing document: {e}")
 
+# Send small post directly to Telegram
+def send_small_post_to_telegram(title, content, content_gujarati):
+    try:
+        bot = Bot(token=TELEGRAM_BOT_TOKEN)
+        message = f"🗞️ {GoogleTranslator(source='en', target='gu').translate(title)}\n\n"
+        for eng_paragraph, guj_paragraph in zip(content, content_gujarati):
+            message += f"{guj_paragraph}\n{eng_paragraph}\n\n"
+        message += "Don't miss out on the latest updates! Stay informed with our channel.\nJoin our Telegram Channel for more updates: https://t.me/pib_gujarati"
+        bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
+    except Exception as e:
+        print(f"Error sending small post to Telegram: {e}")
+
 # Convert DOCX to PDF using LibreOffice
 def convert_docx_to_pdf(input_docx):
     output_pdf = "output.pdf"
@@ -126,3 +142,11 @@ def send_to_telegram(pdf_path, caption):
 # Main script
 if __name__ == "__main__":
     scrape_content()
+    
+    # Clean up temporary files
+    if os.path.exists("template.docx"):
+        os.remove("template.docx")
+    if os.path.exists("output.docx"):
+        os.remove("output.docx")
+    if os.path.exists("output.pdf"):
+        os.remove("output.pdf")
