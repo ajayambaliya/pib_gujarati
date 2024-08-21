@@ -30,12 +30,8 @@ client = MongoClient(MONGO_CONNECTION_STRING)
 db = client[DB_NAME]
 collection = db[COLLECTION_NAME]
 
-# Create a partial index to exclude documents with `null` links
-collection.create_index(
-    [("link", 1)],
-    unique=True,
-    partialFilterExpression={"link": {"$exists": True, "$ne": None}}
-)
+# Create a unique index on the 'link' field
+collection.create_index("link", unique=True)
 
 # Download the DOCX template from the provided URL
 def download_template(url):
@@ -78,9 +74,7 @@ def scrape_content():
             if not full_link:
                 continue
 
-            # Check if link is already in MongoDB
-            if not collection.find_one({"link": full_link}):
-                links.append(full_link)
+            links.append(full_link)
 
     # Process each unscraped link
     for link in links:
