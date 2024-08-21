@@ -203,11 +203,14 @@ def get_truncated_title(title, max_length=50):
 
 def shorten_url(url, max_length=30):
     parsed_url = urlparse(url)
-    shortened_url = f"{parsed_url.netloc}/{parsed_url.path.split('/')[1]}"
+    full_path = parsed_url.path + (f"?{parsed_url.query}" if parsed_url.query else "")
+    shortened_url = f"{parsed_url.netloc}{full_path}"
+    
     if len(shortened_url) > max_length:
         return shortened_url[:max_length] + "..."
     else:
         return shortened_url
+
 
 async def main():
     await scrape_content()
