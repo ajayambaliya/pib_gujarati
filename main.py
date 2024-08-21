@@ -25,8 +25,10 @@ collection = db[COLLECTION_NAME]
 # Download the DOCX template from the provided URL
 def download_template(url):
     try:
+        print(f"Downloading template from: {url}")
         response = requests.get(url)
         response.raise_for_status()
+        print("Template downloaded successfully")
         template_bytes = BytesIO(response.content)
         return template_bytes
     except requests.exceptions.RequestException as e:
@@ -35,9 +37,11 @@ def download_template(url):
 
 # Scraping function
 def scrape_content():
+    print("Starting scraping process")
     base_url = "https://pib.gov.in"
     main_url = f"{base_url}/allRel.aspx"
 
+    print(f"Fetching content from: {main_url}")
     response = requests.get(main_url)
     soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -46,15 +50,20 @@ def scrape_content():
     content_area = soup.find('div', class_='content-area')
 
     if content_area:
+        print("Found content area")
         for a_tag in content_area.find_all('a', href=True):
             href = a_tag['href']
             full_link = f"{base_url}{href}"
             # Check if link is already in MongoDB
             if not collection.find_one({"link": full_link}):
+                print(f"Adding new link to the list: {full_link}")
                 links.append(full_link)
+            else:
+                print(f"Link already scraped: {full_link}")
 
     # Process each unscraped link
     for link in links:
+        print(f"Processing link: {link}")
         response = requests.get(link)
         soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -73,15 +82,19 @@ def scrape_content():
 
         # Add scraped link to MongoDB
         collection.insert_one({"link": link})
+        print(f"Link added to MongoDB: {link}")
         
         # Generate document and send to Telegram
         if len(content) > 0:
+            print(f"Generating and sending document for link: {link}")
             generate_and_send_document(title, content, content_gujarati)
         else:
+            print(f"Sending small post to Telegram for link: {link}")
             send_small_post_to_telegram(title, content, content_gujarati)
 
 # Add content to the DOCX template and save it
 def generate_and_send_document(title, content, content_gujarati):
+    print("Downloading DOCX template")
     template_bytes = download_template(TEMPLATE_URL)
     
     if not template_bytes:
@@ -89,6 +102,7 @@ def generate_and_send_document(title, content, content_gujarati):
         return
     
     try:
+        print("Creating DOCX document")
         doc = Document(template_bytes)
         doc.add_heading(GoogleTranslator(source='en', target='gu').translate(title), level=1)
         doc.add_heading(title, level=1)
@@ -104,10 +118,13 @@ def generate_and_send_document(title, content, content_gujarati):
         doc.add_paragraph('Join our Telegram Channel for more updates: https://t.me/pib_gujarati')
 
         output_docx = "output.docx"
+        print(f"Saving DOCX document to: {output_docx}")
         doc.save(output_docx)
         
         # Convert DOCX to PDF and send to Telegram
+        print("Converting DOCX to PDF")
         pdf_file = convert_docx_to_pdf(output_docx)
+        print("Sending PDF to Telegram")
         send_to_telegram(pdf_file, f"📄 {GoogleTranslator(source='en', target='gu').translate(title)}\n\n{promotional_message}")
     
     except Exception as e:
@@ -116,6 +133,7 @@ def generate_and_send_document(title, content, content_gujarati):
 # Send small post directly to Telegram
 def send_small_post_to_telegram(title, content, content_gujarati):
     try:
+        print("Sending small post to Telegram")
         bot = Bot(token=TELEGRAM_BOT_TOKEN)
         message = f"🗞️ {GoogleTranslator(source='en', target='gu').translate(title)}\n\n"
         for eng_paragraph, guj_paragraph in zip(content, content_gujarati):
@@ -128,6 +146,7 @@ def send_small_post_to_telegram(title, content, content_gujarati):
 # Convert DOCX to PDF using LibreOffice
 def convert_docx_to_pdf(input_docx):
     output_pdf = "output.pdf"
+    print(f"Converting DOCX to PDF: {input_docx} -> {output_pdf}")
     subprocess.run(['libreoffice', '--convert-to', 'pdf', '--outdir', '.', input_docx])
     return output_pdf
 
@@ -135,14 +154,19 @@ def convert_docx_to_pdf(input_docx):
 def send_to_telegram(pdf_path, caption):
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
     with open(pdf_path, 'rb') as pdf_file:
+        print(f"Sending PDF to Telegram: {pdf_path}")
         bot.send_document(chat_id=TELEGRAM_CHANNEL_ID, document=pdf_file, caption=caption)
 
 # Main script
 if __name__ == "__main__":
+    print("Starting script execution")
     scrape_content()
     
     # Clean up temporary files
     if os.path.exists("output.docx"):
+        print("Removing output.docx")
         os.remove("output.docx")
     if os.path.exists("output.pdf"):
+        print("Removing output.pdf")
         os.remove("output.pdf")
+    print("Script execution completed")
