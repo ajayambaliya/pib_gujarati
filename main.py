@@ -113,11 +113,12 @@ async def generate_and_send_document(title, content, content_gujarati, images):
         doc.paragraphs[1].text = title
 
         for eng_paragraph, guj_paragraph in zip(content, content_gujarati):
-            para = doc.add_paragraph()
-            para.add_run("• ").bold = True
-            para.add_run(guj_paragraph)
-            doc.add_paragraph("• " + eng_paragraph)
-            doc.add_paragraph()
+            if eng_paragraph.strip() and guj_paragraph.strip():
+                para = doc.add_paragraph()
+                para.add_run("• ").bold = True
+                para.add_run(guj_paragraph)
+                doc.add_paragraph("• " + eng_paragraph)
+                doc.add_paragraph()
 
         for image in images:
             try:
@@ -125,7 +126,7 @@ async def generate_and_send_document(title, content, content_gujarati, images):
                     async with session.get(image["src"]) as response:
                         image_bytes = await response.read()
                         image_obj = Image.open(BytesIO(image_bytes))
-                        image_obj.thumbnail((image_obj.width * 0.3, image_obj.height * 0.3), Image.ANTIALIAS)
+                        image_obj.thumbnail((image_obj.width * 0.3, image_obj.height * 0.3), resample=Image.BICUBIC)
                         image_file = BytesIO()
                         image_obj.save(image_file, format="PNG")
                         image_file.seek(0)
