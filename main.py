@@ -11,6 +11,7 @@ from telegram.error import TelegramError
 import subprocess
 import asyncio
 from PIL import Image
+from urllib.parse import urlparse
 
 # Configure logging
 logging.basicConfig(
@@ -94,14 +95,14 @@ async def scrape_content():
             collection.insert_one({"link": link})
 
             if content:
-                await generate_and_send_document(title, content, content_gujarati, images)
+                await generate_and_send_document(title, content, content_gujarati, images, link)
             else:
-                await send_small_post_to_telegram(title, content, content_gujarati)
+                await send_small_post_to_telegram(title, content, content_gujarati, link)
 
     except aiohttp.ClientError as e:
         logging.error(f"Error scraping content: {e}")
 
-async def generate_and_send_document(title, content, content_gujarati, images):
+async def generate_and_send_document(title, content, content_gujarati, images, source_url):
     template_bytes = await download_template(TEMPLATE_URL)
     if not template_bytes:
         return
@@ -144,22 +145,23 @@ async def generate_and_send_document(title, content, content_gujarati, images):
 
         pdf_file = await convert_docx_to_pdf(output_docx)
         pdf_name = f"{get_truncated_title(title)}.pdf"
-        await send_to_telegram(pdf_file, pdf_name, f"🔖 {GoogleTranslator(source='en', target='gu').translate(title)}\n\n{promotional_message}\n\n📥 Join our channel to get the latest updates: {TELEGRAM_CHANNEL_URL}")
+        await send_to_telegram(pdf_file, pdf_name, f"🔖 {GoogleTranslator(source='en', target='gu').translate(title)}\n\n🔗 Source: {shorten_url(source_url)}\n\n{promotional_message}\n\n📥 Join our channel to get the latest updates: {TELEGRAM_CHANNEL_URL}")
 
     except Exception as e:
         logging.error(f"Error processing document: {e}")
     finally:
         cleanup_files(["output.docx", "output.pdf"])
 
-async def send_small_post_to_telegram(title, content, content_gujarati):
+async def send_small_post_to_telegram(title, content, content_gujarati, source_url):
     try:
         bot = Bot(token=TELEGRAM_BOT_TOKEN)
         message = f"🗞️ {GoogleTranslator(source='en', target='gu').translate(title)}\n\n"
         for eng_paragraph, guj_paragraph in zip(content, content_gujarati):
-            message += f"• {guj_paragraph}\n• {eng_paragraph}\n\n"
+            if eng_paragraph.strip() and guj_paragraph.strip():
+                message += f"• {guj_paragraph}\n• {eng_paragraph}\n\n"
 
         promotional_message = "Don't miss out on the latest updates! Stay informed with our channel."
-        message += f"{promotional_message}\n📥 Join our Telegram Channel for more updates: {TELEGRAM_CHANNEL_URL}"
+        message += f"🔗 Source: {shorten_url(source_url)}\n\n{promotional_message}\n📥 Join our Telegram Channel for more updates: {TELEGRAM_CHANNEL_URL}"
         await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
 
     except TelegramError as e:
@@ -198,6 +200,14 @@ def get_truncated_title(title, max_length=50):
         return title[:max_length] + "..."
     else:
         return title
+
+def shorten_url(url, max_length=30):
+    parsed_url = urlparse(url)
+    shortened_url = f"{parsed_url.netloc}/{parsed_url.path.split('/')[1]}"
+    if len(shortened_url) > max_length:
+        return shortened_url[:max_length] + "..."
+    else:
+        return shortened_url
 
 async def main():
     await scrape_content()
