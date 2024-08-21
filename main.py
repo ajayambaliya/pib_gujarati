@@ -5,45 +5,59 @@ from deep_translator import GoogleTranslator
 from pymongo import MongoClient
 from docx import Document
 from docx.shared import Pt
-from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
-from io import BytesIO
 from telegram import Bot
 import subprocess
+import logging
 
-# Load environment variables
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Load and validate environment variables
+required_env_vars = ['DB_NAME', 'COLLECTION_NAME', 'MONGO_CONNECTION_STRING', 'TEMPLATE_URL', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHANNEL_ID']
+missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+if missing_vars:
+    raise EnvironmentError(f"Missing environment variables: {', '.join(missing_vars)}")
+
 DB_NAME = os.getenv('DB_NAME')
 COLLECTION_NAME = os.getenv('COLLECTION_NAME')
 MONGO_CONNECTION_STRING = os.getenv('MONGO_CONNECTION_STRING')
-TEMPLATE_URL = 'https://docs.google.com/document/d/1GoHxD3FSM8-RhIJu_WGr4NVjVthCzpfx/edit?usp=sharing&ouid=108520131839767724661&rtpof=true&sd=true'
+TEMPLATE_URL = os.getenv('TEMPLATE_URL')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID')
 
-# Initialize MongoDB client
+# Initialize MongoDB client and collection
 client = MongoClient(MONGO_CONNECTION_STRING)
 db = client[DB_NAME]
 collection = db[COLLECTION_NAME]
+collection.create_index("link", unique=True)
 
 # Download the DOCX template from the provided URL
 def download_template(url):
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        template_path = "template.docx"
-        with open(template_path, "wb") as file:
-            file.write(response.content)
-        return template_path
-    except requests.exceptions.RequestException as e:
-        print(f"Error downloading template: {e}")
-        return None
+    template_path = "template.docx"
+    if not os.path.exists(template_path):
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            with open(template_path, "wb") as file:
+                file.write(response.content)
+            logging.info("Template downloaded successfully.")
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error downloading template: {e}")
+            return None
+    return template_path
 
 # Scraping function
 def scrape_content():
     base_url = "https://pib.gov.in"
     main_url = f"{base_url}/allRel.aspx"
 
-    response = requests.get(main_url)
-    soup = BeautifulSoup(response.text, 'html.parser')
+    try:
+        response = requests.get(main_url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error fetching main page: {e}")
+        return
 
     # Find all <a> tags within <div class="content-area">
     links = []
@@ -59,20 +73,29 @@ def scrape_content():
 
     # Process each unscraped link
     for link in links:
-        response = requests.get(link)
-        soup = BeautifulSoup(response.text, 'html.parser')
+        try:
+            response = requests.get(link)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error fetching {link}: {e}")
+            continue
 
         title = soup.find('h2').get_text(strip=True)
         content = []
         content_gujarati = []
 
         for paragraph in soup.find_all('p'):
+            text = paragraph.get_text(strip=True)
             if paragraph.get('style') == "text-align:justify":
-                text = paragraph.get_text(strip=True)
                 content.append(text)
-                content_gujarati.append(GoogleTranslator(source='en', target='gu').translate(text))
+                try:
+                    content_gujarati.append(GoogleTranslator(source='en', target='gu').translate(text))
+                except Exception as e:
+                    logging.error(f"Translation error for text: {text}. Error: {e}")
+                    content_gujarati.append(text)  # Fallback to English if translation fails
             elif paragraph.get('style') == "text-align:center" and paragraph.get_text(strip=True) == "***":
-                print("Stopping scrape as end pattern is found.")
+                logging.info("Stopping scrape as end pattern is found.")
                 break
 
         # Add scraped link to MongoDB
@@ -86,7 +109,7 @@ def generate_and_send_document(title, content, content_gujarati):
     template_path = download_template(TEMPLATE_URL)
     
     if not template_path:
-        print("Template not available. Exiting.")
+        logging.error("Template not available. Exiting.")
         return
     
     try:
@@ -113,22 +136,36 @@ def generate_and_send_document(title, content, content_gujarati):
         
         # Convert DOCX to PDF and send to Telegram
         pdf_file = convert_docx_to_pdf(output_docx)
-        send_to_telegram(pdf_file, f"📄 {title_gujarati}\n\n{promotional_message}")
+        if pdf_file:
+            send_to_telegram(pdf_file, f"📄 {title_gujarati}\n\n{promotional_message}")
     
     except Exception as e:
-        print(f"Error processing document: {e}")
+        logging.error(f"Error processing document: {e}")
 
 # Convert DOCX to PDF using LibreOffice
 def convert_docx_to_pdf(input_docx):
-    output_pdf = "output.pdf"
-    subprocess.run(['libreoffice', '--convert-to', 'pdf', '--outdir', '.', input_docx])
+    output_pdf = input_docx.replace('.docx', '.pdf')
+    try:
+        subprocess.run(['libreoffice', '--convert-to', 'pdf', '--outdir', '.', input_docx], check=True)
+        if not os.path.exists(output_pdf):
+            raise FileNotFoundError("PDF conversion failed.")
+    except subprocess.CalledProcessError as e:
+        logging.error(f"LibreOffice conversion error: {e}")
+        return None
+    except FileNotFoundError as e:
+        logging.error(e)
+        return None
     return output_pdf
 
 # Send the PDF to the Telegram channel
 def send_to_telegram(pdf_path, caption):
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
-    with open(pdf_path, 'rb') as pdf_file:
-        bot.send_document(chat_id=TELEGRAM_CHANNEL_ID, document=pdf_file, caption=caption)
+    try:
+        with open(pdf_path, 'rb') as pdf_file:
+            bot.send_document(chat_id=TELEGRAM_CHANNEL_ID, document=pdf_file, caption=caption)
+        logging.info(f"Document sent to Telegram channel {TELEGRAM_CHANNEL_ID}.")
+    except Exception as e:
+        logging.error(f"Error sending document to Telegram: {e}")
 
 # Function to format and add a heading to the document
 def add_formatted_heading(doc, text):
