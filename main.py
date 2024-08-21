@@ -1,22 +1,33 @@
+import os
 import requests
 from bs4 import BeautifulSoup
 from deep_translator import GoogleTranslator
+from pymongo import MongoClient
 from docx import Document
 from io import BytesIO
 from telegram import Bot
 import subprocess
-import os
 
-# Configuration
-google_docs_url = os.getenv('google_docs_url')
-telegram_bot_token =  os.getenv('telegram_bot_token')
-telegram_channel_id =  os.getenv('telegram_channel_id')
+# Load environment variables
+DB_NAME = os.getenv('DB_NAME')
+COLLECTION_NAME = os.getenv('COLLECTION_NAME')
+MONGO_CONNECTION_STRING = os.getenv('MONGO_CONNECTION_STRING')
+TEMPLATE_URL = os.getenv('TEMPLATE_URL')
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+TELEGRAM_CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID')
 
-# Download the DOCX template from Google Docs
-response = requests.get(google_docs_url)
-template_path = "template.docx"
-with open(template_path, "wb") as file:
-    file.write(response.content)
+# Initialize MongoDB client
+client = MongoClient(MONGO_CONNECTION_STRING)
+db = client[DB_NAME]
+collection = db[COLLECTION_NAME]
+
+# Download the DOCX template from the provided URL
+def download_template(url):
+    response = requests.get(url)
+    template_path = "template.docx"
+    with open(template_path, "wb") as file:
+        file.write(response.content)
+    return template_path
 
 # Scraping function
 def scrape_content():
@@ -34,35 +45,37 @@ def scrape_content():
         for a_tag in content_area.find_all('a', href=True):
             href = a_tag['href']
             full_link = f"{base_url}{href}"
-            links.append(full_link)
+            # Check if link is already in MongoDB
+            if not collection.find_one({"link": full_link}):
+                links.append(full_link)
 
-    # Display the links and ask user which one to scrape
-    for i, link in enumerate(links, 1):
-        print(f"{i}: {link}")
+    # Process each unscraped link
+    for link in links:
+        response = requests.get(link)
+        soup = BeautifulSoup(response.text, 'html.parser')
 
-    choice = int(input("Enter the number of the link you want to scrape: ")) - 1
-    scrape_url = links[choice]
+        title = soup.find('h2').get_text(strip=True)
+        content = []
+        content_gujarati = []
 
-    response = requests.get(scrape_url)
-    soup = BeautifulSoup(response.text, 'html.parser')
+        for paragraph in soup.find_all('p'):
+            if paragraph.get('style') == "text-align:justify":
+                text = paragraph.get_text(strip=True)
+                content.append(text)
+                content_gujarati.append(GoogleTranslator(source='en', target='gu').translate(text))
+            elif paragraph.get('style') == "text-align:center" and paragraph.get_text(strip=True) == "***":
+                print("Stopping scrape as end pattern is found.")
+                break
 
-    title = soup.find('h2').get_text(strip=True)
-    content = []
-    content_gujarati = []
-
-    for paragraph in soup.find_all('p'):
-        if paragraph.get('style') == "text-align:justify":
-            text = paragraph.get_text(strip=True)
-            content.append(text)
-            content_gujarati.append(GoogleTranslator(source='en', target='gu').translate(text))
-        elif paragraph.get('style') == "text-align:center" and paragraph.get_text(strip=True) == "***":
-            print("Stopping scrape as end pattern is found.")
-            break
-
-    return title, content, content_gujarati
+        # Add scraped link to MongoDB
+        collection.insert_one({"link": link})
+        
+        # Generate document and send to Telegram
+        generate_and_send_document(title, content, content_gujarati)
 
 # Add content to the DOCX template and save it
-def add_content_to_docx(template_path, title, content, content_gujarati, promotional_message):
+def generate_and_send_document(title, content, content_gujarati):
+    template_path = download_template(TEMPLATE_URL)
     doc = Document(template_path)
     doc.add_heading(GoogleTranslator(source='en', target='gu').translate(title), level=1)
     doc.add_heading(title, level=1)
@@ -73,12 +86,16 @@ def add_content_to_docx(template_path, title, content, content_gujarati, promoti
         doc.add_paragraph('')  # Add spacing
 
     # Add promotional message and Telegram channel link
+    promotional_message = "Don't miss out on the latest updates! Stay informed with our channel."
     doc.add_paragraph(promotional_message)
     doc.add_paragraph('Join our Telegram Channel for more updates: https://t.me/pib_gujarati')
 
     output_docx = "output.docx"
     doc.save(output_docx)
-    return output_docx
+    
+    # Convert DOCX to PDF and send to Telegram
+    pdf_file = convert_docx_to_pdf(output_docx)
+    send_to_telegram(pdf_file, f"📄 {GoogleTranslator(source='en', target='gu').translate(title)}\n\n{promotional_message}")
 
 # Convert DOCX to PDF using LibreOffice
 def convert_docx_to_pdf(input_docx):
@@ -87,25 +104,11 @@ def convert_docx_to_pdf(input_docx):
     return output_pdf
 
 # Send the PDF to the Telegram channel
-def send_to_telegram(pdf_path, caption, bot_token, channel_id):
-    bot = Bot(token=bot_token)
+def send_to_telegram(pdf_path, caption):
+    bot = Bot(token=TELEGRAM_BOT_TOKEN)
     with open(pdf_path, 'rb') as pdf_file:
-        bot.send_document(chat_id=channel_id, document=pdf_file, caption=caption)
+        bot.send_document(chat_id=TELEGRAM_CHANNEL_ID, document=pdf_file, caption=caption)
 
 # Main script
 if __name__ == "__main__":
-    title, content, content_gujarati = scrape_content()
-    promotional_message = "Don't miss out on the latest updates! Stay informed with our channel."
-    
-    docx_file = add_content_to_docx(template_path, title, content, content_gujarati, promotional_message)
-    pdf_file = convert_docx_to_pdf(docx_file)
-    
-    caption = f"📄 {GoogleTranslator(source='en', target='gu').translate(title)}\n\n{promotional_message}"
-    send_to_telegram(pdf_file, caption, telegram_bot_token, telegram_channel_id)
-
-    # Clean up
-    os.remove(docx_file)
-    os.remove(pdf_file)
-    os.remove(template_path)
-
-    print("Process completed successfully!")
+    scrape_content()
