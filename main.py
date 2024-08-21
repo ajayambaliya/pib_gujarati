@@ -34,10 +34,10 @@ client = MongoClient(MONGO_CONNECTION_STRING)
 db = client[DB_NAME]
 collection = db[COLLECTION_NAME]
 
-def download_template(url):
+async def download_template(url):
     try:
         logging.info(f"Downloading template from: {url}")
-        response = requests.get(url)
+        response = await requests.get(url)
         response.raise_for_status()
         logging.info("Template downloaded successfully")
         template_bytes = BytesIO(response.content)
@@ -46,13 +46,13 @@ def download_template(url):
         logging.error(f"Error downloading template: {e}")
         return None
 
-def scrape_content():
+async def scrape_content():
     logging.info("Starting scraping process")
     base_url = "https://pib.gov.in"
     main_url = f"{base_url}/allRel.aspx"
 
     logging.info(f"Fetching content from: {main_url}")
-    response = requests.get(main_url)
+    response = await requests.get(main_url)
     soup = BeautifulSoup(response.text, "html.parser")
 
     links = []
@@ -71,7 +71,7 @@ def scrape_content():
 
     for link in links:
         logging.info(f"Processing link: {link}")
-        response = requests.get(link)
+        response = await requests.get(link)
         soup = BeautifulSoup(response.text, "html.parser")
 
         title = soup.find("h2").get_text(strip=True)
@@ -99,7 +99,7 @@ def scrape_content():
 
 async def generate_and_send_document(title, content, content_gujarati):
     logging.info("Downloading DOCX template")
-    template_bytes = download_template(TEMPLATE_URL)
+    template_bytes = await download_template(TEMPLATE_URL)
 
     if not template_bytes:
         logging.error("Template not available. Exiting.")
@@ -124,7 +124,7 @@ async def generate_and_send_document(title, content, content_gujarati):
         logging.info(f"Saving DOCX document to: {output_docx}")
         doc.save(output_docx)
 
-        pdf_file = convert_docx_to_pdf(output_docx)
+        pdf_file = await convert_docx_to_pdf(output_docx)
         logging.info("Sending PDF to Telegram")
         await send_to_telegram(pdf_file, f"📄 {GoogleTranslator(source='en', target='gu').translate(title)}\n\n{promotional_message}")
 
@@ -145,7 +145,7 @@ async def send_small_post_to_telegram(title, content, content_gujarati):
     except Exception as e:
         logging.error(f"Unexpected error sending small post to Telegram: {e}")
 
-def convert_docx_to_pdf(input_docx):
+async def convert_docx_to_pdf(input_docx):
     output_pdf = "output.pdf"
     logging.info(f"Converting DOCX to PDF: {input_docx} -> {output_pdf}")
     subprocess.run(["libreoffice", "--convert-to", "pdf", "--outdir", ".", input_docx])
@@ -162,12 +162,9 @@ async def send_to_telegram(pdf_path, caption):
         except Exception as e:
             logging.error(f"Unexpected error sending PDF to Telegram: {e}")
 
-if __name__ == "__main__":
+async def main():
     logging.info("Starting script execution")
-    scrape_content()
-
-    # Call the asynchronous generate_and_send_document function
-    asyncio.run(generate_and_send_document(title, content, content_gujarati))
+    await scrape_content()
 
     if os.path.exists("output.docx"):
         logging.info("Removing output.docx")
@@ -176,3 +173,6 @@ if __name__ == "__main__":
         logging.info("Removing output.pdf")
         os.remove("output.pdf")
     logging.info("Script execution completed")
+
+if __name__ == "__main__":
+    asyncio.run(main())
