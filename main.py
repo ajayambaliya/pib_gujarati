@@ -6,10 +6,13 @@ from pymongo import MongoClient
 from docx import Document
 from io import BytesIO
 from telegram import Bot
+from telegram.ext import ContextTypes
+from telegram.utils.helpers import create_deep_linked_url
 from telegram.error import TelegramError
 import subprocess
 import shutil
 import logging
+import asyncio
 
 # Configure logging
 logging.basicConfig(
@@ -89,12 +92,12 @@ def scrape_content():
 
         if len(content) > 0:
             logging.info(f"Generating and sending document for link: {link}")
-            generate_and_send_document(title, content, content_gujarati)
+            await generate_and_send_document(title, content, content_gujarati)
         else:
             logging.info(f"Sending small post to Telegram for link: {link}")
-            send_small_post_to_telegram(title, content, content_gujarati)
+            await send_small_post_to_telegram(title, content, content_gujarati)
 
-def generate_and_send_document(title, content, content_gujarati):
+async def generate_and_send_document(title, content, content_gujarati):
     logging.info("Downloading DOCX template")
     template_bytes = download_template(TEMPLATE_URL)
 
@@ -123,12 +126,12 @@ def generate_and_send_document(title, content, content_gujarati):
 
         pdf_file = convert_docx_to_pdf(output_docx)
         logging.info("Sending PDF to Telegram")
-        send_to_telegram(pdf_file, f"📄 {GoogleTranslator(source='en', target='gu').translate(title)}\n\n{promotional_message}")
+        await send_to_telegram(pdf_file, f"📄 {GoogleTranslator(source='en', target='gu').translate(title)}\n\n{promotional_message}")
 
     except Exception as e:
         logging.error(f"Error processing document: {e}")
 
-def send_small_post_to_telegram(title, content, content_gujarati):
+async def send_small_post_to_telegram(title, content, content_gujarati):
     try:
         logging.info("Sending small post to Telegram")
         bot = Bot(token=TELEGRAM_BOT_TOKEN)
@@ -136,7 +139,7 @@ def send_small_post_to_telegram(title, content, content_gujarati):
         for eng_paragraph, guj_paragraph in zip(content, content_gujarati):
             message += f"{guj_paragraph}\n{eng_paragraph}\n\n"
         message += "Don't miss out on the latest updates! Stay informed with our channel.\nJoin our Telegram Channel for more updates: https://t.me/pib_gujarati"
-        bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
+        await ContextTypes().bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
     except TelegramError as e:
         logging.error(f"Error sending small post to Telegram: {e}")
     except Exception as e:
@@ -148,20 +151,23 @@ def convert_docx_to_pdf(input_docx):
     subprocess.run(["libreoffice", "--convert-to", "pdf", "--outdir", ".", input_docx])
     return output_pdf
 
-def send_to_telegram(pdf_path, caption):
-    bot = Bot(token=TELEGRAM_BOT_TOKEN)
-    try:
-        logging.info(f"Sending PDF to Telegram: {pdf_path}")
-        with open(pdf_path, "rb") as pdf_file:
-            bot.send_document(chat_id=TELEGRAM_CHANNEL_ID, document=pdf_file, caption=caption)
-    except TelegramError as e:
-        logging.error(f"Error sending PDF to Telegram: {e}")
-    except Exception as e:
-        logging.error(f"Unexpected error sending PDF to Telegram: {e}")
+async def send_to_telegram(pdf_path, caption):
+    async with ContextTypes().bot.typing():
+        try:
+            logging.info(f"Sending PDF to Telegram: {pdf_path}")
+            with open(pdf_path, "rb") as pdf_file:
+                await ContextTypes().bot.send_document(chat_id=TELEGRAM_CHANNEL_ID, document=pdf_file, caption=caption)
+        except TelegramError as e:
+            logging.error(f"Error sending PDF to Telegram: {e}")
+        except Exception as e:
+            logging.error(f"Unexpected error sending PDF to Telegram: {e}")
 
 if __name__ == "__main__":
     logging.info("Starting script execution")
     scrape_content()
+
+    # Call the asynchronous generate_and_send_document function
+    asyncio.run(generate_and_send_document(title, content, content_gujarati))
 
     if os.path.exists("output.docx"):
         logging.info("Removing output.docx")
