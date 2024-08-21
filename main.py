@@ -23,11 +23,16 @@ collection = db[COLLECTION_NAME]
 
 # Download the DOCX template from the provided URL
 def download_template(url):
-    response = requests.get(url)
-    template_path = "template.docx"
-    with open(template_path, "wb") as file:
-        file.write(response.content)
-    return template_path
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        template_path = "template.docx"
+        with open(template_path, "wb") as file:
+            file.write(response.content)
+        return template_path
+    except requests.exceptions.RequestException as e:
+        print(f"Error downloading template: {e}")
+        return None
 
 # Scraping function
 def scrape_content():
@@ -76,26 +81,35 @@ def scrape_content():
 # Add content to the DOCX template and save it
 def generate_and_send_document(title, content, content_gujarati):
     template_path = download_template(TEMPLATE_URL)
-    doc = Document(template_path)
-    doc.add_heading(GoogleTranslator(source='en', target='gu').translate(title), level=1)
-    doc.add_heading(title, level=1)
-
-    for eng_paragraph, guj_paragraph in zip(content, content_gujarati):
-        doc.add_paragraph(guj_paragraph, style='List Bullet')
-        doc.add_paragraph(eng_paragraph, style='List Bullet')
-        doc.add_paragraph('')  # Add spacing
-
-    # Add promotional message and Telegram channel link
-    promotional_message = "Don't miss out on the latest updates! Stay informed with our channel."
-    doc.add_paragraph(promotional_message)
-    doc.add_paragraph('Join our Telegram Channel for more updates: https://t.me/pib_gujarati')
-
-    output_docx = "output.docx"
-    doc.save(output_docx)
     
-    # Convert DOCX to PDF and send to Telegram
-    pdf_file = convert_docx_to_pdf(output_docx)
-    send_to_telegram(pdf_file, f"📄 {GoogleTranslator(source='en', target='gu').translate(title)}\n\n{promotional_message}")
+    if not template_path:
+        print("Template not available. Exiting.")
+        return
+    
+    try:
+        doc = Document(template_path)
+        doc.add_heading(GoogleTranslator(source='en', target='gu').translate(title), level=1)
+        doc.add_heading(title, level=1)
+
+        for eng_paragraph, guj_paragraph in zip(content, content_gujarati):
+            doc.add_paragraph(guj_paragraph, style='List Bullet')
+            doc.add_paragraph(eng_paragraph, style='List Bullet')
+            doc.add_paragraph('')  # Add spacing
+
+        # Add promotional message and Telegram channel link
+        promotional_message = "Don't miss out on the latest updates! Stay informed with our channel."
+        doc.add_paragraph(promotional_message)
+        doc.add_paragraph('Join our Telegram Channel for more updates: https://t.me/pib_gujarati')
+
+        output_docx = "output.docx"
+        doc.save(output_docx)
+        
+        # Convert DOCX to PDF and send to Telegram
+        pdf_file = convert_docx_to_pdf(output_docx)
+        send_to_telegram(pdf_file, f"📄 {GoogleTranslator(source='en', target='gu').translate(title)}\n\n{promotional_message}")
+    
+    except Exception as e:
+        print(f"Error processing document: {e}")
 
 # Convert DOCX to PDF using LibreOffice
 def convert_docx_to_pdf(input_docx):
