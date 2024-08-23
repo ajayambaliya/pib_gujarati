@@ -183,7 +183,7 @@ async def generate_and_send_document(title, content, content_gujarati, images, s
 
         pdf_file = await convert_docx_to_pdf(output_docx)
         pdf_name = f"{get_truncated_title(title)}.pdf"
-        await send_to_telegram(pdf_file, pdf_name, f"🔖 {translated_title}\n\n🔗 Source: {shorten_url(source_url)}\n\n{promotional_message}\n\n📥 Join our channel to get the latest updates: {TELEGRAM_CHANNEL_URL}")
+        await send_to_telegram(pdf_file, pdf_name, f"🔖 {translated_title}\n\n🔗 Source: {source_url}\n\n{promotional_message}\n\n📥 Join our channel to get the latest updates: {TELEGRAM_CHANNEL_URL}")
 
     except Exception as e:
         logging.error(f"Error processing document: {e}")
@@ -208,7 +208,7 @@ async def send_small_post_to_telegram(title, content, content_gujarati, source_u
                 message += f"• {guj_paragraph}\n• {eng_paragraph}\n\n"
 
         promotional_message = "Don't miss out on the latest updates! Stay informed with our channel."
-        message += f"🔗 Source: {shorten_url(source_url)}\n\n{promotional_message}\n📥 Join our Telegram Channel for more updates: {TELEGRAM_CHANNEL_URL}"
+        message += f"🔗 Source: {source_url}\n\n{promotional_message}\n📥 Join our Telegram Channel for more updates: {TELEGRAM_CHANNEL_URL}"
         await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
 
     except TelegramError as e:
@@ -242,8 +242,7 @@ def get_truncated_title(title, max_length=40):
 
 def shorten_url(url):
     parsed_url = urlparse(url)
-    base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
-    return base_url
+    return url
 
 def cleanup_files(files):
     for file in files:
