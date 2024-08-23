@@ -90,26 +90,28 @@ async def scrape_content():
             for paragraph in soup.find_all("p", style="text-align:justify"):
                 text = paragraph.get_text(strip=True)
                 content.append(text)
-                
+
                 chunks = chunk_text(text)
                 translated_chunks = []
                 for chunk in chunks:
                     translated_chunk = GoogleTranslator(source="en", target="gu").translate(chunk)
-                    translated_chunks.append(translated_chunk)
-                
+                    if translated_chunk:
+                        translated_chunks.append(translated_chunk)
+
                 content_gujarati.append(" ".join(translated_chunks))
 
             if not content:
                 for paragraph in soup.find_all("p", style="margin-left:0cm; margin-right:0cm; text-align:justify"):
                     text = paragraph.get_text(strip=True)
                     content.append(text)
-                    
+
                     chunks = chunk_text(text)
                     translated_chunks = []
                     for chunk in chunks:
                         translated_chunk = GoogleTranslator(source="en", target="gu").translate(chunk)
-                        translated_chunks.append(translated_chunk)
-                    
+                        if translated_chunk:
+                            translated_chunks.append(translated_chunk)
+
                     content_gujarati.append(" ".join(translated_chunks))
 
             img_tags = soup.find_all("img")
@@ -142,7 +144,8 @@ async def generate_and_send_document(title, content, content_gujarati, images, s
         translated_title_chunks = []
         for chunk in title_chunks:
             translated_chunk = GoogleTranslator(source="en", target="gu").translate(chunk)
-            translated_title_chunks.append(translated_chunk)
+            if translated_chunk:
+                translated_title_chunks.append(translated_chunk)
         translated_title = " ".join(translated_title_chunks)
         
         doc.add_heading(translated_title, 0)
@@ -195,7 +198,8 @@ async def send_small_post_to_telegram(title, content, content_gujarati, source_u
         translated_title_chunks = []
         for chunk in title_chunks:
             translated_chunk = GoogleTranslator(source="en", target="gu").translate(chunk)
-            translated_title_chunks.append(translated_chunk)
+            if translated_chunk:
+                translated_title_chunks.append(translated_chunk)
         translated_title = " ".join(translated_title_chunks)
         
         message = f"🗞️ {translated_title}\n\n"
@@ -226,38 +230,29 @@ async def send_to_telegram(pdf_path, pdf_name, caption):
         try:
             bot = Bot(token=TELEGRAM_BOT_TOKEN)
             with open(pdf_path, "rb") as pdf_file:
-                await bot.send_document(chat_id=TELEGRAM_CHANNEL_ID, document=pdf_file, caption=caption, filename=pdf_name)
+                await bot.send_document(chat_id=TELEGRAM_CHANNEL_ID, document=pdf_file, filename=pdf_name, caption=caption)
+            logging.info(f"PDF sent to Telegram: {pdf_name}")
         except TelegramError as e:
             logging.error(f"Error sending PDF to Telegram: {e}")
-        except Exception as e:
-            logging.error(f"Unexpected error sending PDF to Telegram: {e}")
-
-def cleanup_files(file_list):
-    for file_path in file_list:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            logging.info(f"Removed file: {file_path}")
-
-def get_truncated_title(title, max_length=50):
-    if len(title) > max_length:
-        return title[:max_length] + "..."
     else:
-        return title
+        logging.error("PDF path is None, skipping Telegram send.")
 
-def shorten_url(url, max_length=50):
+def get_truncated_title(title, max_length=40):
+    return title if len(title) <= max_length else title[:max_length] + "..."
+
+def shorten_url(url):
     parsed_url = urlparse(url)
-    full_path = f"{parsed_url.path}?{parsed_url.query}" if parsed_url.query else parsed_url.path
-    shortened_url = f"{parsed_url.netloc}{full_path}"
-    
-    if len(shortened_url) > max_length:
-        start = shortened_url[:max_length//2]
-        end = shortened_url[-(max_length//2 - 3):]
-        return f"{start}...{end}"
-    else:
-        return shortened_url
+    base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+    return base_url
 
-async def main():
-    await scrape_content()
+def cleanup_files(files):
+    for file in files:
+        try:
+            if os.path.exists(file):
+                os.remove(file)
+                logging.info(f"File {file} removed successfully")
+        except Exception as e:
+            logging.error(f"Error removing file {file}: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(scrape_content())
