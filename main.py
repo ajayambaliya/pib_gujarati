@@ -34,6 +34,19 @@ client = MongoClient(MONGO_CONNECTION_STRING)
 db = client[DB_NAME]
 collection = db[COLLECTION_NAME]
 
+def chunk_text(text, max_length=4999):
+    chunks = []
+    current_chunk = ""
+    for sentence in text.split(". "):
+        if len(current_chunk) + len(sentence) + 2 <= max_length:
+            current_chunk += sentence + ". "
+        else:
+            chunks.append(current_chunk.strip())
+            current_chunk = sentence + ". "
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+    return chunks
+
 async def download_template(url):
     try:
         async with aiohttp.ClientSession() as session:
@@ -77,13 +90,27 @@ async def scrape_content():
             for paragraph in soup.find_all("p", style="text-align:justify"):
                 text = paragraph.get_text(strip=True)
                 content.append(text)
-                content_gujarati.append(GoogleTranslator(source="en", target="gu").translate(text))
+                
+                chunks = chunk_text(text)
+                translated_chunks = []
+                for chunk in chunks:
+                    translated_chunk = GoogleTranslator(source="en", target="gu").translate(chunk)
+                    translated_chunks.append(translated_chunk)
+                
+                content_gujarati.append(" ".join(translated_chunks))
 
             if not content:
                 for paragraph in soup.find_all("p", style="margin-left:0cm; margin-right:0cm; text-align:justify"):
                     text = paragraph.get_text(strip=True)
                     content.append(text)
-                    content_gujarati.append(GoogleTranslator(source="en", target="gu").translate(text))
+                    
+                    chunks = chunk_text(text)
+                    translated_chunks = []
+                    for chunk in chunks:
+                        translated_chunk = GoogleTranslator(source="en", target="gu").translate(chunk)
+                        translated_chunks.append(translated_chunk)
+                    
+                    content_gujarati.append(" ".join(translated_chunks))
 
             img_tags = soup.find_all("img")
             images = []
@@ -110,7 +137,15 @@ async def generate_and_send_document(title, content, content_gujarati, images, s
     try:
         doc = Document(template_bytes)
         doc.paragraphs[0].text = ""
-        doc.add_heading(GoogleTranslator(source="en", target="gu").translate(title), 0)
+        
+        title_chunks = chunk_text(title)
+        translated_title_chunks = []
+        for chunk in title_chunks:
+            translated_chunk = GoogleTranslator(source="en", target="gu").translate(chunk)
+            translated_title_chunks.append(translated_chunk)
+        translated_title = " ".join(translated_title_chunks)
+        
+        doc.add_heading(translated_title, 0)
         doc.paragraphs[1].text = title
 
         for eng_paragraph, guj_paragraph in zip(content, content_gujarati):
@@ -145,7 +180,7 @@ async def generate_and_send_document(title, content, content_gujarati, images, s
 
         pdf_file = await convert_docx_to_pdf(output_docx)
         pdf_name = f"{get_truncated_title(title)}.pdf"
-        await send_to_telegram(pdf_file, pdf_name, f"🔖 {GoogleTranslator(source='en', target='gu').translate(title)}\n\n🔗 Source: {shorten_url(source_url)}\n\n{promotional_message}\n\n📥 Join our channel to get the latest updates: {TELEGRAM_CHANNEL_URL}")
+        await send_to_telegram(pdf_file, pdf_name, f"🔖 {translated_title}\n\n🔗 Source: {shorten_url(source_url)}\n\n{promotional_message}\n\n📥 Join our channel to get the latest updates: {TELEGRAM_CHANNEL_URL}")
 
     except Exception as e:
         logging.error(f"Error processing document: {e}")
@@ -155,7 +190,15 @@ async def generate_and_send_document(title, content, content_gujarati, images, s
 async def send_small_post_to_telegram(title, content, content_gujarati, source_url):
     try:
         bot = Bot(token=TELEGRAM_BOT_TOKEN)
-        message = f"🗞️ {GoogleTranslator(source='en', target='gu').translate(title)}\n\n"
+        
+        title_chunks = chunk_text(title)
+        translated_title_chunks = []
+        for chunk in title_chunks:
+            translated_chunk = GoogleTranslator(source="en", target="gu").translate(chunk)
+            translated_title_chunks.append(translated_chunk)
+        translated_title = " ".join(translated_title_chunks)
+        
+        message = f"🗞️ {translated_title}\n\n"
         for eng_paragraph, guj_paragraph in zip(content, content_gujarati):
             if eng_paragraph.strip() and guj_paragraph.strip():
                 message += f"• {guj_paragraph}\n• {eng_paragraph}\n\n"
@@ -203,20 +246,15 @@ def get_truncated_title(title, max_length=50):
 
 def shorten_url(url, max_length=50):
     parsed_url = urlparse(url)
-    # Combine the path and query to preserve the full URL structure
     full_path = f"{parsed_url.path}?{parsed_url.query}" if parsed_url.query else parsed_url.path
     shortened_url = f"{parsed_url.netloc}{full_path}"
     
-    # Ensure we don't cut off the URL in a way that loses critical information
     if len(shortened_url) > max_length:
-        # Keep the start and end intact, trimming only the middle part
         start = shortened_url[:max_length//2]
         end = shortened_url[-(max_length//2 - 3):]
         return f"{start}...{end}"
     else:
         return shortened_url
-
-
 
 async def main():
     await scrape_content()
