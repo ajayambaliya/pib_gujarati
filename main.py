@@ -5,14 +5,10 @@ from bs4 import BeautifulSoup
 from deep_translator import GoogleTranslator
 from pymongo import MongoClient
 from docx import Document
-from docx.shared import Inches  # Import Inches for image resizing
-from io import BytesIO
 from telegram import Bot
 from telegram.error import TelegramError
 import subprocess
 import asyncio
-from PIL import Image
-from urllib.parse import urlparse
 import re
 
 # Configure logging
@@ -60,7 +56,6 @@ async def download_template(url):
     except aiohttp.ClientError as e:
         logging.error(f"Error downloading template: {e}")
         return None
-
 
 async def scrape_content():
     base_url = "https://pib.gov.in"
@@ -136,24 +131,17 @@ async def scrape_content():
 
                     content_gujarati.append(" ".join(translated_chunks))
 
-            img_tags = soup.find_all("img")
-            images = []
-            for img_tag in img_tags:
-                img_src = img_tag.get("src")
-                if img_src:
-                    images.append({"src": img_src, "alt": img_tag.get("alt", "")})
-
             collection.insert_one({"link": link})
 
             if content:
-                await generate_and_send_document(title, content, content_gujarati, images, link)
+                await generate_and_send_document(title, content, content_gujarati, link)
             else:
                 await send_small_post_to_telegram(title, content, content_gujarati, link)
 
     except aiohttp.ClientError as e:
         logging.error(f"Error scraping content: {e}")
 
-async def generate_and_send_document(title, content, content_gujarati, images, source_url):
+async def generate_and_send_document(title, content, content_gujarati, source_url):
     template_bytes = await download_template(TEMPLATE_URL)
     if not template_bytes:
         return
@@ -180,28 +168,6 @@ async def generate_and_send_document(title, content, content_gujarati, images, s
                 para.add_run(guj_paragraph)
                 doc.add_paragraph("• " + eng_paragraph)
                 doc.add_paragraph()
-
-        for image in images:
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(image["src"]) as response:
-                        response.raise_for_status()
-                        image_bytes = await response.read()
-                        image_obj = Image.open(BytesIO(image_bytes))
-                        
-                        # Resize the image to 25% of its original size
-                        new_size = (int(image_obj.width * 0.50), int(image_obj.height * 0.50))
-                        image_obj.thumbnail(new_size, resample=Image.BICUBIC)
-                        
-                        image_file = BytesIO()
-                        image_obj.save(image_file, format="PNG")
-                        image_file.seek(0)
-                        
-                        # Add the resized image to the document
-                        doc.add_picture(image_file, width=Inches(new_size[0] * 0.0139))  # Convert pixels to inches
-                        doc.add_paragraph(image["alt"])
-            except Exception as e:
-                logging.error(f"Error processing image: {e}")
 
         promotional_message = "Don't miss out on the latest updates! Stay informed with our channel."
         doc.add_paragraph(promotional_message)
@@ -266,19 +232,18 @@ async def send_to_telegram(pdf_file, pdf_name, caption):
         bot = Bot(token=TELEGRAM_BOT_TOKEN)
         with open(pdf_file, "rb") as file:
             await bot.send_document(chat_id=TELEGRAM_CHANNEL_ID, document=file, filename=pdf_name, caption=caption)
-        logging.info(f"Sent PDF {pdf_name} to Telegram successfully")
+        logging.info(f"Sent {pdf_name} to Telegram successfully")
     except TelegramError as e:
-        logging.error(f"Error sending PDF to Telegram: {e}")
+        logging.error(f"Error sending document to Telegram: {e}")
 
-def cleanup_files(file_paths):
-    for file_path in file_paths:
+def cleanup_files(files):
+    for file in files:
         try:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                logging.info(f"Deleted temporary file: {file_path}")
+            if os.path.exists(file):
+                os.remove(file)
+                logging.info(f"Removed file: {file}")
         except Exception as e:
-            logging.error(f"Error deleting file {file_path}: {e}")
+            logging.error(f"Error removing file {file}: {e}")
 
 if __name__ == "__main__":
     asyncio.run(scrape_content())
-
