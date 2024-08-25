@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 from deep_translator import GoogleTranslator
 from pymongo import MongoClient
 from docx import Document
+from docx.shared import Inches  # Import Inches for image resizing
 from io import BytesIO
 from telegram import Bot
 from telegram.error import TelegramError
@@ -137,7 +138,6 @@ async def scrape_content():
     except aiohttp.ClientError as e:
         logging.error(f"Error scraping content: {e}")
 
-
 async def generate_and_send_document(title, content, content_gujarati, images, source_url):
     template_bytes = await download_template(TEMPLATE_URL)
     if not template_bytes:
@@ -170,13 +170,20 @@ async def generate_and_send_document(title, content, content_gujarati, images, s
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(image["src"]) as response:
+                        response.raise_for_status()
                         image_bytes = await response.read()
                         image_obj = Image.open(BytesIO(image_bytes))
-                        image_obj.thumbnail((image_obj.width * 0.3, image_obj.height * 0.3), resample=Image.BICUBIC)
+                        
+                        # Resize the image to 25% of its original size
+                        new_size = (int(image_obj.width * 0.25), int(image_obj.height * 0.25))
+                        image_obj.thumbnail(new_size, resample=Image.BICUBIC)
+                        
                         image_file = BytesIO()
                         image_obj.save(image_file, format="PNG")
                         image_file.seek(0)
-                        doc.add_picture(image_file, width=docx.shared.Inches(5))
+                        
+                        # Add the resized image to the document
+                        doc.add_picture(image_file, width=Inches(new_size[0] * 0.0139))  # Convert pixels to inches
                         doc.add_paragraph(image["alt"])
             except Exception as e:
                 logging.error(f"Error processing image: {e}")
@@ -227,38 +234,36 @@ async def convert_docx_to_pdf(input_docx):
     output_pdf = "output.pdf"
     try:
         subprocess.run(["libreoffice", "--convert-to", "pdf", "--outdir", ".", input_docx], check=True)
+        logging.info(f"Converted {input_docx} to PDF successfully")
         return output_pdf
     except subprocess.CalledProcessError as e:
         logging.error(f"Error converting DOCX to PDF: {e}")
         return None
 
-async def send_to_telegram(pdf_path, pdf_name, caption):
-    if pdf_path:
+def get_truncated_title(title):
+    max_length = 200
+    invalid_chars = r'\/:*?"<>|'
+    sanitized_title = "".join([c for c in title if c not in invalid_chars])
+    return sanitized_title[:max_length] if len(sanitized_title) > max_length else sanitized_title
+
+async def send_to_telegram(pdf_file, pdf_name, caption):
+    try:
+        bot = Bot(token=TELEGRAM_BOT_TOKEN)
+        with open(pdf_file, "rb") as file:
+            await bot.send_document(chat_id=TELEGRAM_CHANNEL_ID, document=file, filename=pdf_name, caption=caption)
+        logging.info(f"Sent PDF {pdf_name} to Telegram successfully")
+    except TelegramError as e:
+        logging.error(f"Error sending PDF to Telegram: {e}")
+
+def cleanup_files(file_paths):
+    for file_path in file_paths:
         try:
-            bot = Bot(token=TELEGRAM_BOT_TOKEN)
-            with open(pdf_path, "rb") as pdf_file:
-                await bot.send_document(chat_id=TELEGRAM_CHANNEL_ID, document=pdf_file, filename=pdf_name, caption=caption)
-            logging.info(f"PDF sent to Telegram: {pdf_name}")
-        except TelegramError as e:
-            logging.error(f"Error sending PDF to Telegram: {e}")
-    else:
-        logging.error("PDF path is None, skipping Telegram send.")
-
-def get_truncated_title(title, max_length=40):
-    return title if len(title) <= max_length else title[:max_length] + "..."
-
-def shorten_url(url):
-    parsed_url = urlparse(url)
-    return url
-
-def cleanup_files(files):
-    for file in files:
-        try:
-            if os.path.exists(file):
-                os.remove(file)
-                logging.info(f"File {file} removed successfully")
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logging.info(f"Deleted temporary file: {file_path}")
         except Exception as e:
-            logging.error(f"Error removing file {file}: {e}")
+            logging.error(f"Error deleting file {file_path}: {e}")
 
 if __name__ == "__main__":
     asyncio.run(scrape_content())
+
