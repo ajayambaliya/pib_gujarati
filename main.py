@@ -13,6 +13,7 @@ import subprocess
 import asyncio
 from PIL import Image
 from urllib.parse import urlparse
+import re
 
 # Configure logging
 logging.basicConfig(
