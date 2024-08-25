@@ -84,7 +84,13 @@ async def scrape_content():
                     response.raise_for_status()
                     soup = BeautifulSoup(await response.text(), "html.parser")
 
-            title = soup.find("h2").get_text(strip=True)
+            title_element = soup.find("h2")
+            if title_element:
+                title = title_element.get_text(strip=True)
+            else:
+                logging.warning(f"No <h2> found for link: {link}")
+                continue
+
             content, content_gujarati = [], []
 
             for paragraph in soup.find_all("p", style="text-align:justify"):
@@ -130,6 +136,7 @@ async def scrape_content():
 
     except aiohttp.ClientError as e:
         logging.error(f"Error scraping content: {e}")
+
 
 async def generate_and_send_document(title, content, content_gujarati, images, source_url):
     template_bytes = await download_template(TEMPLATE_URL)
