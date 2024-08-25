@@ -93,13 +93,14 @@ async def scrape_content():
                 continue
 
             content, content_gujarati = [], []
+            asterisk_pattern = re.compile(r'\*{2,}')  # Regex pattern to match two or more asterisks
 
             for paragraph in soup.find_all("p", style="text-align:justify"):
                 text = paragraph.get_text(strip=True)
-                
-                # Stop scraping if the '***' pattern is found
-                if "***" in text:
-                    logging.info(f"Stopping scraping at '***' in link: {link}")
+
+                # Stop scraping if any asterisk pattern (e.g., **, ***) is found
+                if asterisk_pattern.search(text):
+                    logging.info(f"Stopping scraping due to asterisks in link: {link}")
                     break
 
                 content.append(text)
@@ -117,9 +118,9 @@ async def scrape_content():
                 for paragraph in soup.find_all("p", style="margin-left:0cm; margin-right:0cm; text-align:justify"):
                     text = paragraph.get_text(strip=True)
                     
-                    # Stop scraping if the '***' pattern is found
-                    if "***" in text:
-                        logging.info(f"Stopping scraping at '***' in link: {link}")
+                    # Stop scraping if any asterisk pattern (e.g., **, ***) is found
+                    if asterisk_pattern.search(text):
+                        logging.info(f"Stopping scraping due to asterisks in link: {link}")
                         break
 
                     content.append(text)
@@ -187,7 +188,7 @@ async def generate_and_send_document(title, content, content_gujarati, images, s
                         image_obj = Image.open(BytesIO(image_bytes))
                         
                         # Resize the image to 25% of its original size
-                        new_size = (int(image_obj.width * 0.25), int(image_obj.height * 0.25))
+                        new_size = (int(image_obj.width * 0.50), int(image_obj.height * 0.50))
                         image_obj.thumbnail(new_size, resample=Image.BICUBIC)
                         
                         image_file = BytesIO()
