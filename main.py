@@ -96,6 +96,12 @@ async def scrape_content():
 
             for paragraph in soup.find_all("p", style="text-align:justify"):
                 text = paragraph.get_text(strip=True)
+                
+                # Stop scraping if the '***' pattern is found
+                if "***" in text:
+                    logging.info(f"Stopping scraping at '***' in link: {link}")
+                    break
+
                 content.append(text)
 
                 chunks = chunk_text(text)
@@ -110,6 +116,12 @@ async def scrape_content():
             if not content:
                 for paragraph in soup.find_all("p", style="margin-left:0cm; margin-right:0cm; text-align:justify"):
                     text = paragraph.get_text(strip=True)
+                    
+                    # Stop scraping if the '***' pattern is found
+                    if "***" in text:
+                        logging.info(f"Stopping scraping at '***' in link: {link}")
+                        break
+
                     content.append(text)
 
                     chunks = chunk_text(text)
