@@ -10,6 +10,7 @@ from telegram.error import TelegramError
 import subprocess
 import asyncio
 import re
+from io import BytesIO
 
 # Configure logging
 logging.basicConfig(
