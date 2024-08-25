@@ -60,6 +60,7 @@ async def download_template(url):
         logging.error(f"Error downloading template: {e}")
         return None
 
+
 async def scrape_content():
     base_url = "https://pib.gov.in"
     main_url = f"{base_url}/allRel.aspx"
